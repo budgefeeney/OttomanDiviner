@@ -57,3 +57,19 @@ module "db" {
   # Snapshot name upon DB deletion
   final_snapshot_identifier = "OttomanDivinerSnapshot"
 }
+
+resource "aws_s3_bucket" "OD_bucket" {
+  bucket = "hcktn-ottmndvnr-bucket"
+  acl    = "private"
+  force_destroy = true
+
+  versioning {
+    enabled = true
+  }
+
+  tags = {
+    Terraform   = "true"
+    Environment = "dev"
+  }
+
+}
