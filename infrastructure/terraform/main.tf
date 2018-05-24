@@ -71,5 +71,64 @@ resource "aws_s3_bucket" "OD_bucket" {
     Terraform   = "true"
     Environment = "dev"
   }
+}
 
+module "web_cluster" {
+  source = "terraform-aws-modules/ec2-instance/aws"
+
+  name           = "web-farm"
+  instance_count = 1
+
+  ami                    = "ami-ca0135b3"
+  instance_type          = "t2.micro"
+  key_name               = "ottomandiviner"
+  monitoring             = true
+  vpc_security_group_ids = ["${module.vpc.default_security_group_id}"]
+  subnet_id              = "${module.vpc.private_subnets[0]}"
+
+  tags = {
+    Terraform = "true"
+    Environment = "dev"
+  }
+}
+
+/*
+## Waiting on AWS Support to raise the limit
+
+module "etl_cluster" {
+  source = "terraform-aws-modules/ec2-instance/aws"
+
+  name           = "etl-farm"
+  instance_count = 1
+
+  ami                    = "ami-945e68ed"
+  instance_type          = "p2.xlarge"
+  key_name               = "ottomandiviner"
+  monitoring             = true
+  vpc_security_group_ids = ["${module.vpc.default_security_group_id}"]
+  subnet_id              = "${module.vpc.private_subnets[0]}"
+
+  tags = {
+    Terraform = "true"
+    Environment = "dev"
+  }
+}
+*/
+module "bastion_cluster" {
+  source = "terraform-aws-modules/ec2-instance/aws"
+
+  name           = "bastion-farm"
+  instance_count = 1
+
+  ami                    = "ami-945e68ed"
+  instance_type          = "t2.micro"
+  key_name               = "external"
+  monitoring             = true
+  vpc_security_group_ids = ["${module.vpc.default_security_group_id}"]
+  subnet_id              = "${module.vpc.public_subnets[0]}"
+
+  tags = {
+    Terraform = "true"
+    Environment = "dev"
+  }
 }
