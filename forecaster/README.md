@@ -8,7 +8,8 @@ The only forecaster current is
 
 This in turn is heavily inspired by the following:
 
- 1. https://github.com/btrotta/kaggle-favorita 
+ 1. https://www.kaggle.com/ceshine/lgbm-starter - CeeShine's famous starter kernel
+ 1. https://github.com/btrotta/kaggle-favorita
  2. https://towardsdatascience.com/review-kaggle-corporación-favorita-grocery-sales-forecasting-part-i-9330b7350713
  3. https://medium.com/the-artificial-impostor/review-kaggle-corporación-favorita-grocery-sales-forecasting-part-ii-680cca7f9bc5
  4. https://github.com/danielkiedrowski/kaggle-favorita-grocery-sales-forecasting
@@ -18,5 +19,3 @@ This in turn is heavily inspired by the following:
  6. https://arxiv.org/abs/1803.04037
  7. https://www.kaggle.com/c/favorita-grocery-sales-forecasting/discussion/47564
  8. http://forums.fast.ai/t/5th-place-solution-of-favorita-grocery-sales-forecasting/10009
-
-
