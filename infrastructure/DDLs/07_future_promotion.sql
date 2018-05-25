@@ -16,6 +16,7 @@ CREATE TABLE ottoman.future_promotion(
 	promotion_id bigint NOT NULL DEFAULT nextval('ottoman.future_promotion_id_pk_seq'::regclass),
 	store_nbr bigint NOT NULL,
 	item_nbr bigint NOT NULL,
+	local_date date,
 	on_promotion boolean,
 	CONSTRAINT pk_future_promotion_id PRIMARY KEY (promotion_id)
 );
