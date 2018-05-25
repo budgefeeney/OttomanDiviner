@@ -17,7 +17,8 @@ module "db" {
   subnet_ids = "${module.vpc.public_subnets}"
   vpc_security_group_ids = [
     "${module.vpc.default_security_group_id}",
-    "${module.postgres_sg.this_security_group_id}"
+    "${module.postgres_sg.this_security_group_id}",
+    "${module.bryan_sg.this_security_group_id}"
   ]
   publicly_accessible = true
 
@@ -54,6 +55,24 @@ module "postgres_sg" {
       protocol    = "tcp"
       description = "DEBUG"
       cidr_blocks = "81.128.146.82/32"
+    },
+  ]
+}
+
+module "bryan_sg" {
+  source = "terraform-aws-modules/security-group/aws"
+
+  name        = "bryan"
+  description = "POSTGRES access specially for bryan"
+  vpc_id      = "${module.vpc.vpc_id}"
+
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = 5432
+      to_port     = 5432
+      protocol    = "tcp"
+      description = "DEBUG"
+      cidr_blocks = "192.127.94.77/32"
     },
   ]
 }
