@@ -9,6 +9,8 @@ The only forecaster current is
 This in turn is heavily inspired by the following:
 
  1. https://www.kaggle.com/ceshine/lgbm-starter - CeeShine's famous starter kernel
+  1. Its dissection: https://www.kaggle.com/aharless/dissecting-ceshine-lee-s-lgbm-kernel
+  2. Its substantial improvement: https://www.kaggle.com/vrtjso/lgbm-one-step-ahead
  1. https://github.com/btrotta/kaggle-favorita
  2. https://towardsdatascience.com/review-kaggle-corporación-favorita-grocery-sales-forecasting-part-i-9330b7350713
  3. https://medium.com/the-artificial-impostor/review-kaggle-corporación-favorita-grocery-sales-forecasting-part-ii-680cca7f9bc5
