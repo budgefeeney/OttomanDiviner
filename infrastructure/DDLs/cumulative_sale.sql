@@ -1,5 +1,3 @@
-
-
 -- object: ottoman.cumulative_sale_pk_seq | type: SEQUENCE --
 -- DROP SEQUENCE ottoman.cumulative_sale_pk_seq;
 CREATE SEQUENCE ottoman.cumulative_sale_pk_seq
