@@ -81,7 +81,7 @@ def load_data_sql (cumul_sales_path, cumul_sales_query_path, items_path, stores_
     conn = psycopg2.connect(conn_str)
 
     cumul_sales = pd.DataFrame()
-    for chunk in pd.read_sql("select * from " + cumul_sales_path + " where date >  CURRENT_DATE - INTERVAL '6 months' order by date asc", con=conn, chunksize=100000):
+    for chunk in pd.read_sql("select id, store_nbr, item_nbr, local_date as date, unit_sale as unit_sales, on_promotion as onpromotion from " + cumul_sales_path + " where date >  CURRENT_DATE - INTERVAL '6 months' order by date asc", con=conn, chunksize=100000):
         cumul_sales = cumul_sales.append(chunk)
         print ("Appending chunk to cumulative sales")
     cumul_sales.unit_sales.apply(lambda u: np.log1p(float(u)) if float(u) > 0 else 0)
@@ -89,7 +89,7 @@ def load_data_sql (cumul_sales_path, cumul_sales_query_path, items_path, stores_
 
 
     cumul_sales_query = pd.DataFrame()
-    for chunk in pd.read_sql("select * from " + cumul_sales_query_path + " where date >  CURRENT_DATE  and date < CURRENT_DATE + INTERVAL '16 days' order by date asc", con=conn, chunksize=100000):
+    for chunk in pd.read_sql("select id, store_nbr, item_nbr, local_date as date, unit_sale as unit_sales, on_promotion as onpromotion from " + cumul_sales_query_path + " where date >  CURRENT_DATE  and date < CURRENT_DATE + INTERVAL '16 days' order by date asc", con=conn, chunksize=100000):
         print ("Appending chunk to sales query")
         cumul_sales_query = cumul_sales_query.append(chunk)
 
