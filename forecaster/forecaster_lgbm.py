@@ -80,34 +80,45 @@ def load_data_sql (cumul_sales_path, cumul_sales_query_path, items_path, stores_
 
     conn = psycopg2.connect(conn_str)
 
-    cumul_sales = pd.DataFrame()
-    for chunk in pd.read_sql("select id, store_nbr, item_nbr, local_date as date, unit_sale as unit_sales, on_promotion as onpromotion from " + cumul_sales_path + " where date >  CURRENT_DATE - INTERVAL '6 months' order by date asc", con=conn, chunksize=100000):
-        cumul_sales = cumul_sales.append(chunk)
-        print ("Appending chunk to cumulative sales")
-    cumul_sales.unit_sales.apply(lambda u: np.log1p(float(u)) if float(u) > 0 else 0)
-    print ("Cumulative sales loaded")
-
 
     cumul_sales_query = pd.DataFrame()
-    for chunk in pd.read_sql("select id, store_nbr, item_nbr, local_date as date, unit_sale as unit_sales, on_promotion as onpromotion from " + cumul_sales_query_path + " where date >  CURRENT_DATE  and date < CURRENT_DATE + INTERVAL '16 days' order by date asc", con=conn, chunksize=100000):
-        print ("Appending chunk to sales query")
+    c = 1
+    for chunk in pd.read_sql("select * from " + cumul_sales_query_path + " where date >  CURRENT_DATE  and date < CURRENT_DATE + INTERVAL '16 days' order by date asc", con=conn, chunksize=100000):
+        print ("Appending chunk " + str(c) + " to future promotions")
+        c += 1
         cumul_sales_query = cumul_sales_query.append(chunk)
 
+    cumul_sales_query.date = pd.to_datetime(cumul_sales_query.date)
     query_start_date = str(cumul_sales_query.iloc[0,1]).split(" ")[0]
     cumul_sales_query = cumul_sales_query.set_index(
         ['store_nbr', 'item_nbr', 'date']
     )
-    print ("Sales query loaded")
+    print("Future promotions loaded")
+
+
+    cumul_sales = pd.DataFrame()
+    c = 1
+    for chunk in pd.read_sql("select * from " + cumul_sales_path + " where date >  CURRENT_DATE - INTERVAL '6 months' order by date asc", con=conn, chunksize=100000):
+        cumul_sales = cumul_sales.append(chunk)
+        print ("Appending chunk " + str(c) + " to cumulative sales")
+        c += 1
+    cumul_sales.unit_sales.apply(lambda u: np.log1p(float(u)) if float(u) > 0 else 0)
+    cumul_sales.date = pd.to_datetime(cumul_sales.date)
+    print ("Cumulative sales loaded")
 
     items = pd.DataFrame()
+    c = 1
     for chunk in pd.read_sql("select * from " + items_path, con=conn, chunksize=5000):
-        print ("Appending chunk to items")
+        print ("Appending chunk " + str(c) + " to items")
+        c += 1
         items = items.append(chunk)
     print ("Items loaded")
 
     stores = pd.DataFrame()
-    for chunk in pd.read_sql("select * from " + items_path, con=conn, chunksize=5000):
-        print ("Appending chunk to stores")
+    c = 1
+    for chunk in pd.read_sql("select * from " + stores_path, con=conn, chunksize=5000):
+        print ("Appending chunk " + str(c) + " to stores")
+        c += 1
         stores = stores.append(chunk)
 
     items = items.set_index("item_nbr")
@@ -179,7 +190,8 @@ def prepare_dataset(cumul_sales, promos, start_date, is_train=True):
         return X, y
     return X
 
-def create_machine_learning_matrices(cumul_sales, promos_train_and_query, start_date, current_date, test_start_date):
+
+def create_machine_learning_matrices(cumul_sales, promos_train_and_query, start_date, current_date, validate_start_date):
     """
     A dataset is trend prices over the last time-period.
 
@@ -215,7 +227,7 @@ def create_machine_learning_matrices(cumul_sales, promos_train_and_query, start_
     y_train = np.concatenate(y_l, axis=0)
     del X_l, y_l
 
-    X_validate, y_validate = prepare_dataset(cumul_sales, promos_train_and_query, test_start_date)
+    X_validate, y_validate = prepare_dataset(cumul_sales, promos_train_and_query, validate_start_date)
 
     X_query = prepare_dataset(cumul_sales, promos_train_and_query, current_date, is_train=False)
 
@@ -313,7 +325,7 @@ if __name__ == "__main__":
         cumul_sales, cumul_sales_query, query_start_date, items, stores = \
             load_data_sql(cumul_sale_tbl, cumul_sale_future_tbl, items_tbl, stores_tbl)
     else:
-        raise ValueError ("First argument must be format: csv or sqls")
+        raise ValueError ("First argument must be format: csv or sql")
 
     (min_y, min_m, min_d) = min_date.split("-")
     cumul_sales = cumul_sales.loc[cumul_sales.date>=pd.datetime(int(min_y), int(min_m), int(min_d))]
@@ -324,16 +336,17 @@ if __name__ == "__main__":
     # Align the items info with our cumul sales info, so features can be extracted
     items = items.reindex(cumul_sales.index.get_level_values(1))
 
-    now = datetime.now()
+    nowtime = datetime.now()
+    now = date(nowtime.year, nowtime.month, nowtime.day)
     # #DEBUG DEBUG FIXME TODO Undo this
     # now = date(2017, 8, 15)
 
     # How far back to go to start generating trend features for demand
-    history_start = now - timedelta(7*WeeksOfHistoryForFeature) + timedelta(1)
-    test_start    = now - timedelta(7*WeeksOfHistoryForFeatureOnValidate) + timedelta(1)
+    hist_feature_start_date = now - timedelta(7 * WeeksOfHistoryForFeature) + timedelta(1)
+    validate_start_date     = now - timedelta(7 * WeeksOfHistoryForFeatureOnValidate) + timedelta(1)
     X_train, y_train, X_validate, y_validate, X_query = create_machine_learning_matrices(\
         cumul_sales, promo_variables, \
-        start_date=history_start, current_date=now, test_start_date=test_start)
+        start_date=hist_feature_start_date, current_date=now, validate_start_date=validate_start_date)
 
     # Train a separate model for each of the next `FutureDaysToCalculate`
     query_pred, validate_rmse = train_model(items, X_train, y_train, X_validate, y_validate, X_query)
