@@ -16,7 +16,7 @@ CREATE TABLE ottoman.cumulative_sale(
   store_nbr bigint,
   item_nbr bigint,
 	local_date date,
-	unit_sales bigint, --float?
+	unit_sale bigint, --float?
 	on_promotion boolean,
 	CONSTRAINT pk_cumulative_sale_id PRIMARY KEY (id)
 );
