@@ -11,13 +11,14 @@ CREATE SEQUENCE ottoman.cumulative_sale_future_pk_seq
 
 
 -- object: ottoman.cumulative_sale | type: TABLE --
--- DROP TABLE ottoman.cumulative_sale;
+-- DROP TABLE ottoman.cumulative_sale_future;
 CREATE TABLE ottoman.cumulative_sale_future(
 	id bigint NOT NULL DEFAULT nextval('ottoman.cumulative_sale_future_pk_seq'::regclass),
+	local_date date,
   store_nbr bigint,
   item_nbr bigint,
-	local_date date,
-	unit_sales bigint, --float?
+	unit_sale float, --float?
+	on_promotion boolean,
 	CONSTRAINT pk_cumulative_sale_future_id PRIMARY KEY (id)
 );
 -- ddl-end --
