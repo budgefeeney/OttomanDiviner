@@ -1,4 +1,4 @@
-# Ottoman Diviner of Sales Practices
+# Ottoman Diviner of Sales Performance
 
 This peculiarly named project provides a suite of services for helping retailers build out their apps.
 
