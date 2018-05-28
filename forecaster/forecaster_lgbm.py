@@ -17,18 +17,22 @@ import json
 import psycopg2
 
 FutureDaysToCalculate=16
+WeeksOfHistoryForMinTrainigData=11
 WeeksOfHistoryForFeature=8
 WeeksOfHistoryForFeatureOnValidate=3
 TrainingTimePeriodCount  = 4
 
-def load_data_csv (cumul_sales_path, cumul_sales_query_path, items_path, stores_path):
+def load_data_csv (cumul_sales_path, cumul_sales_query_path, items_path, stores_path, query_start_date=None):
     """
-    Loads three datasets from the file-system in CSV format:
+    Loads four datasets from the file-system in CSV format:
 
     cumul_sale_path is the cumulative sales data, should be the last 12 months
     cumul_sale_query_path enumerates the things to predict
     items is item data
     stores is store data
+
+    query_start_date if this is None, it's inferred from the first row of the cumul_sales_query_path documents. If
+    this is not None, then cumul_sales_query rows before this date are removed.
     """
     cumul_sales = pd.read_csv(
         cumul_sales_path,
@@ -46,7 +50,10 @@ def load_data_csv (cumul_sales_path, cumul_sales_query_path, items_path, stores_
             parse_dates=["date"],
         )
 
-    query_start_date = str(cumul_sales_query.iloc[0,1]).split(" ")[0]
+    if query_start_date is None:
+        query_start_date = str(cumul_sales_query.iloc[0,1]).split(" ")[0]
+    else:
+        cumul_sales_query = cumul_sales_query[cumul_sales_query.date >= query_start_date]
 
     cumul_sales_query = cumul_sales_query.set_index(
         ['store_nbr', 'item_nbr', 'date']
@@ -62,7 +69,7 @@ def load_data_csv (cumul_sales_path, cumul_sales_query_path, items_path, stores_
 
     return cumul_sales, cumul_sales_query, query_start_date, items, stores
 
-def load_data_sql (cumul_sales_path, cumul_sales_query_path, items_path, stores_path):
+def load_data_sql (cumul_sales_path, cumul_sales_query_path, items_path, stores_path, query_start_date=None):
     """
     Loads three datasets from the file-system in CSV format:
 
@@ -89,7 +96,12 @@ def load_data_sql (cumul_sales_path, cumul_sales_query_path, items_path, stores_
         cumul_sales_query = cumul_sales_query.append(chunk)
 
     cumul_sales_query.date = pd.to_datetime(cumul_sales_query.date)
-    query_start_date = str(cumul_sales_query.iloc[0,1]).split(" ")[0]
+
+    if query_start_date is None:
+        query_start_date = str(cumul_sales_query.iloc[0,1]).split(" ")[0]
+    else:
+        cumul_sales_query = cumul_sales_query[cumul_sales_query.date >= query_start_date]
+
     cumul_sales_query = cumul_sales_query.set_index(
         ['store_nbr', 'item_nbr', 'date']
     )
@@ -102,7 +114,7 @@ def load_data_sql (cumul_sales_path, cumul_sales_query_path, items_path, stores_
         cumul_sales = cumul_sales.append(chunk)
         print ("Appending chunk " + str(c) + " to cumulative sales")
         c += 1
-    cumul_sales.unit_sales.apply(lambda u: np.log1p(float(u)) if float(u) > 0 else 0)
+    cumul_sales.loc[:, 'unit_sales'] = cumul_sales.unit_sales.apply(lambda u: np.log1p(float(u)) if float(u) > 0 else 0)
     cumul_sales.date = pd.to_datetime(cumul_sales.date)
     print ("Cumulative sales loaded")
 
@@ -317,18 +329,37 @@ def save_predictions_sql(cumul_sales, cumul_sales_query, query_start_date, query
 
 
 if __name__ == "__main__":
-    (loc, min_date, cumul_sale_tbl, cumul_sale_future_tbl, items_tbl, stores_tbl, output_tbl) = sys.argv[1:]
+    # TODO Get rid of the min_date requirement now that we have other info
+    (loc, min_date_str, cumul_sale_tbl, cumul_sale_future_tbl, items_tbl, stores_tbl, output_tbl) = sys.argv[1:]
+
+    (min_y, min_m, min_d) = min_date_str.split("-")
+    min_date_time = pd.datetime(int(min_y), int(min_m), int(min_d))
+
+    nowtime = datetime.now()
+    now = date(nowtime.year, nowtime.month, nowtime.day)
+
+    hist_data_start         = now - timedelta(7 * WeeksOfHistoryForMinTrainigData) + timedelta(1)
+    hist_feature_start_date = now - timedelta(7 * WeeksOfHistoryForFeature) + timedelta(1)
+    validate_start_date     = now - timedelta(7 * WeeksOfHistoryForFeatureOnValidate) + timedelta(1)
+
     if loc == "csv":
         cumul_sales, cumul_sales_query, query_start_date, items, stores = \
-            load_data_csv(cumul_sale_tbl, cumul_sale_future_tbl, items_tbl, stores_tbl)
+            load_data_csv(cumul_sale_tbl, cumul_sale_future_tbl, items_tbl, stores_tbl, query_start_date=nowtime)
     elif loc == "sql":
         cumul_sales, cumul_sales_query, query_start_date, items, stores = \
-            load_data_sql(cumul_sale_tbl, cumul_sale_future_tbl, items_tbl, stores_tbl)
+            load_data_sql(cumul_sale_tbl, cumul_sale_future_tbl, items_tbl, stores_tbl, query_start_date=nowtime)
     else:
         raise ValueError ("First argument must be format: csv or sql")
 
-    (min_y, min_m, min_d) = min_date.split("-")
-    cumul_sales = cumul_sales.loc[cumul_sales.date>=pd.datetime(int(min_y), int(min_m), int(min_d))]
+    # TODO Why is this out of the loading functions?
+    cumul_sales = cumul_sales[cumul_sales.date.isin(
+        pd.date_range(hist_data_start, periods=7*11)
+    )].copy()
+    cumul_sales.set_index(
+        ['store_nbr', 'item_nbr', 'date']
+    )
+
+    print (str(cumul_sales.shape) + ", " + str(cumul_sales_query.shape))
 
     promo_variables = generate_promo_variables_train_and_query(cumul_sales, cumul_sales_query)
     cumul_sales     = generate_unit_sales_columns(cumul_sales)
@@ -336,14 +367,7 @@ if __name__ == "__main__":
     # Align the items info with our cumul sales info, so features can be extracted
     items = items.reindex(cumul_sales.index.get_level_values(1))
 
-    nowtime = datetime.now()
-    now = date(nowtime.year, nowtime.month, nowtime.day)
-    # #DEBUG DEBUG FIXME TODO Undo this
-    # now = date(2017, 8, 15)
-
     # How far back to go to start generating trend features for demand
-    hist_feature_start_date = now - timedelta(7 * WeeksOfHistoryForFeature) + timedelta(1)
-    validate_start_date     = now - timedelta(7 * WeeksOfHistoryForFeatureOnValidate) + timedelta(1)
     X_train, y_train, X_validate, y_validate, X_query = create_machine_learning_matrices(\
         cumul_sales, promo_variables, \
         start_date=hist_feature_start_date, current_date=now, validate_start_date=validate_start_date)
