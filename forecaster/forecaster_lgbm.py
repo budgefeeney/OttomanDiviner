@@ -10,9 +10,9 @@ from datetime import date, timedelta, datetime
 import pandas as pd
 import numpy as np
 from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import LabelEncoder
 import lightgbm as lgb
 import sys
-import os
 import json
 import psycopg2
 
@@ -159,6 +159,29 @@ def generate_promo_variables_train_and_query(cumul_sales, cumul_sales_query):
 
     return promo_variables
 
+
+def generate_item_and_store_variables(cumul_sales, items, stores):
+    encoder = LabelEncoder()
+
+    items_reindex = items.reindex(cumul_sales.index.get_level_values(1))
+    item_family   = encoder.fit_transform(items_reindex['family'].values)
+    item_class    = encoder.fit_transform(items_reindex['class'].values)
+    item_perish   = items_reindex['perishable'].values
+
+    stores_reindex = stores.reindex(cumul_sales.index.get_level_values(0))
+    store_nbr      = cumul_sales.reset_index().store_nbr.values - 1
+    store_cluster  = stores_reindex['cluster'].values - 1
+    store_type     = encoder.fit_transform(stores_reindex['type'].values)
+
+    item_group_mean = cumul_sales.groupby('item_nbr').mean()
+    store_group_mean = cumul_sales.groupby('store_nbr').mean()
+
+    cat_features = np.stack([item_family, item_class, item_perish, store_nbr, store_cluster, store_type], axis=1)
+
+    return cat_features, item_group_mean, store_group_mean
+
+
+
 def generate_unit_sales_columns(cumul_sales):
     """
     Rotate the dataset so it's not normalized any more, and is more pivot-table
@@ -171,10 +194,14 @@ def generate_unit_sales_columns(cumul_sales):
     cumul_sales.columns = cumul_sales.columns.get_level_values(1)
     return cumul_sales
 
+
 def get_timespan(dataset, dt, minus, periods, freq='D'):
     return dataset[
         pd.date_range(dt - timedelta(days=minus), periods=periods, freq=freq)
     ]
+
+
+
 
 def prepare_dataset(cumul_sales, promos, start_date, is_train=True):
     """
@@ -188,19 +215,19 @@ def prepare_dataset(cumul_sales, promos, start_date, is_train=True):
     """
 
     X = pd.DataFrame({
-        "day_1_2017": get_timespan(cumul_sales, start_date, 1, 1).values.ravel(),
-        "mean_3_2017": get_timespan(cumul_sales, start_date, 3, 3).mean(axis=1).values,
-        "mean_7_2017": get_timespan(cumul_sales, start_date, 7, 7).mean(axis=1).values,
-        "mean_14_2017": get_timespan(cumul_sales, start_date, 14, 14).mean(axis=1).values,
-        "mean_30_2017": get_timespan(cumul_sales, start_date, 30, 30).mean(axis=1).values,
-        "mean_60_2017": get_timespan(cumul_sales, start_date, 60, 60).mean(axis=1).values,
-        "promo_14_2017": get_timespan(promos, start_date, 14, 14).sum(axis=1).values,
-        "promo_60_2017": get_timespan(promos, start_date, 60, 60).sum(axis=1).values,
+        "day_1_recent": get_timespan(cumul_sales, start_date, 1, 1).values.ravel(),
+        "mean_3_recent": get_timespan(cumul_sales, start_date, 3, 3).mean(axis=1).values,
+        "mean_7_recent": get_timespan(cumul_sales, start_date, 7, 7).mean(axis=1).values,
+        "mean_14_recent": get_timespan(cumul_sales, start_date, 14, 14).mean(axis=1).values,
+        "mean_30_recent": get_timespan(cumul_sales, start_date, 30, 30).mean(axis=1).values,
+        "mean_60_recent": get_timespan(cumul_sales, start_date, 60, 60).mean(axis=1).values,
+        "promo_14_recent": get_timespan(promos, start_date, 14, 14).sum(axis=1).values,
+        "promo_60_recnet": get_timespan(promos, start_date, 60, 60).sum(axis=1).values,
     })
 
     # Autoregressive features - do daily flux over a week
     for i in range(7):
-        X['mean_4_dow{}_2017'.format(i)] = get_timespan(cumul_sales, start_date, 28 - i, 4, freq='7D').mean(axis=1).values
+        X['mean_4_dow{}_recent'.format(i)] = get_timespan(cumul_sales, start_date, 28 - i, 4, freq='7D').mean(axis=1).values
 
     # Promotions on/off for the next 16 days
     for i in range(16):
@@ -214,7 +241,7 @@ def prepare_dataset(cumul_sales, promos, start_date, is_train=True):
     return X
 
 
-def create_machine_learning_matrices(cumul_sales, promos_train_and_query, start_date, current_date, validate_start_date):
+def create_machine_learning_matrices(cumul_sales, items, stores, promos_train_and_query, start_date, current_date, validate_start_date):
     """
     A dataset is trend prices over the last time-period.
 
@@ -236,6 +263,7 @@ def create_machine_learning_matrices(cumul_sales, promos_train_and_query, start_
     """
 
     print("Preparing dataset...")
+
     X_l, y_l = [], []
     for i in range(TrainingTimePeriodCount):
         delta = timedelta(days=7 * i)
@@ -256,7 +284,8 @@ def create_machine_learning_matrices(cumul_sales, promos_train_and_query, start_
 
     return X_train, y_train, X_validate, y_validate, X_query
 
-def train_model(items, X_train, y_train, X_validate, y_val, X_test, params=None, maxRounds=5000):
+
+def train_model(items, item_store_vars, X_train, y_train, X_validate, y_val, X_query, params=None, maxRounds=5000):
     """
     Train a model using Lightwave Gradient Boosted Methods, specifically a
     gradient-boosted regression-tree.
@@ -284,7 +313,7 @@ def train_model(items, X_train, y_train, X_validate, y_val, X_test, params=None,
         print("Future Day %d" % (i+1))
         print("=" * 50)
         dtrain = lgb.Dataset(
-            X_train, label=y_train[:, i],
+           X_train, label=y_train[:, i],
             categorical_feature=cate_vars,
             weight=pd.concat([items["perishable"]] * TrainingTimePeriodCount) * 0.25 + 1
         )
@@ -303,7 +332,7 @@ def train_model(items, X_train, y_train, X_validate, y_val, X_test, params=None,
         validate_pred.append(bst.predict(
             X_validate, num_iteration=bst.best_iteration or maxRounds))
         query_pred.append(bst.predict(
-            X_test, num_iteration=bst.best_iteration or maxRounds))
+            X_query, num_iteration=bst.best_iteration or maxRounds))
 
     validate_rmse = np.sqrt (mean_squared_error(np.expm1(y_validate), np.expm1(np.array(validate_pred)).transpose()))
 
@@ -379,11 +408,13 @@ if __name__ == "__main__":
 
     # How far back to go to start generating trend features for demand
     X_train, y_train, X_validate, y_validate, X_query = create_machine_learning_matrices(\
-        cumul_sales, promo_variables, \
+        cumul_sales, items, stores, promo_variables, \
         start_date=hist_feature_start_date, current_date=now, validate_start_date=validate_start_date)
 
+    item_store_vars, _, _ = generate_item_and_store_variables(cumul_sales, items, stores)
+
     # Train a separate model for each of the next `FutureDaysToCalculate`
-    query_pred, validate_rmse = train_model(items, X_train, y_train, X_validate, y_validate, X_query)
+    query_pred, validate_rmse = train_model(items, item_store_vars, X_train, y_train, X_validate, y_validate, X_query)
     print ("Validation error is : " + str(validate_rmse))
 
     save_predictions(cumul_sales, cumul_sales_query, query_start_date, query_pred, output_tbl)
