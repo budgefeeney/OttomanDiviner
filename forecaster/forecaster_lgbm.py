@@ -16,11 +16,11 @@ import os
 import json
 import psycopg2
 
-FutureDaysToCalculate=16
-WeeksOfHistoryForMinTrainigData=11
-WeeksOfHistoryForFeature=8
-WeeksOfHistoryForFeatureOnValidate=3
-TrainingTimePeriodCount  = 4
+FutureDaysToCalculate = 16
+WeeksOfHistoryForMinTrainigData = 20
+WeeksOfHistoryForFeature = 7
+WeeksOfHistoryForFeatureOnValidate = 3
+TrainingTimePeriodCount = 6
 
 def load_data_csv (cumul_sales_path, cumul_sales_query_path, items_path, stores_path, query_start_date=None):
     """
@@ -171,9 +171,9 @@ def generate_unit_sales_columns(cumul_sales):
     cumul_sales.columns = cumul_sales.columns.get_level_values(1)
     return cumul_sales
 
-def get_timespan(dataset, dt, minus, periods):
+def get_timespan(dataset, dt, minus, periods, freq='D'):
     return dataset[
-        pd.date_range(dt - timedelta(days=minus), periods=periods)
+        pd.date_range(dt - timedelta(days=minus), periods=periods, freq=freq)
     ]
 
 def prepare_dataset(cumul_sales, promos, start_date, is_train=True):
@@ -186,17 +186,28 @@ def prepare_dataset(cumul_sales, promos, start_date, is_train=True):
     promos : Used to generate features to say is a promotion for a single
     store/item pair available on a given day
     """
-    X = pd.DataFrame({  # Mean target for different retrospective timespans & total # promotions
+
+    X = pd.DataFrame({
+        "day_1_2017": get_timespan(cumul_sales, start_date, 1, 1).values.ravel(),
         "mean_3_2017": get_timespan(cumul_sales, start_date, 3, 3).mean(axis=1).values,
         "mean_7_2017": get_timespan(cumul_sales, start_date, 7, 7).mean(axis=1).values,
         "mean_14_2017": get_timespan(cumul_sales, start_date, 14, 14).mean(axis=1).values,
-        "promo_14_2017": get_timespan(promos, start_date, 14, 14).sum(axis=1).values
+        "mean_30_2017": get_timespan(cumul_sales, start_date, 30, 30).mean(axis=1).values,
+        "mean_60_2017": get_timespan(cumul_sales, start_date, 60, 60).mean(axis=1).values,
+        "promo_14_2017": get_timespan(promos, start_date, 14, 14).sum(axis=1).values,
+        "promo_60_2017": get_timespan(promos, start_date, 60, 60).sum(axis=1).values,
     })
-    for i in range(FutureDaysToCalculate):  # Promotions on future days
+
+    # Autoregressive features - do daily flux over a week
+    for i in range(7):
+        X['mean_4_dow{}_2017'.format(i)] = get_timespan(cumul_sales, start_date, 28 - i, 4, freq='7D').mean(axis=1).values
+
+    # Promotions on/off for the next 16 days
+    for i in range(16):
         X["promo_{}".format(i)] = promos[
             start_date + timedelta(days=i)].values.astype(np.uint8)
     if is_train:
-        y = cumul_sales[  # Target values for future days
+        y = cumul_sales[
             pd.date_range(start_date, periods=16)
         ].values
         return X, y
@@ -255,14 +266,13 @@ def train_model(items, X_train, y_train, X_validate, y_val, X_test, params=None,
 
     if params is None:
         params = {
-            'num_leaves': 2**5 - 1,
-            'objective': 'regression_l2',
-            'max_depth': 8,
-            'min_data_in_leaf': 50,
-            'learning_rate': 0.05,
-            'feature_fraction': 0.75,
-            'bagging_fraction': 0.75,
-            'bagging_freq': 1,
+            'num_leaves': 31,
+            'objective': 'regression',
+            'min_data_in_leaf': 300,
+            'learning_rate': 0.1,
+            'feature_fraction': 0.8,
+            'bagging_fraction': 0.8,
+            'bagging_freq': 2,
             'metric': 'l2',
             'num_threads': 4
         }
@@ -276,7 +286,7 @@ def train_model(items, X_train, y_train, X_validate, y_val, X_test, params=None,
         dtrain = lgb.Dataset(
             X_train, label=y_train[:, i],
             categorical_feature=cate_vars,
-            weight=pd.concat([items["perishable"]] * 4) * 0.25 + 1
+            weight=pd.concat([items["perishable"]] * TrainingTimePeriodCount) * 0.25 + 1
         )
         dval = lgb.Dataset(
             X_validate, label=y_val[:, i], reference=dtrain,
@@ -339,7 +349,7 @@ if __name__ == "__main__":
     now = date(nowtime.year, nowtime.month, nowtime.day)
 
     hist_data_start         = now - timedelta(7 * WeeksOfHistoryForMinTrainigData) + timedelta(1)
-    hist_feature_start_date = now - timedelta(7 * WeeksOfHistoryForFeature) + timedelta(1)
+    hist_feature_start_date = now - timedelta(7 * TrainingTimePeriodCount + FutureDaysToCalculate)
     validate_start_date     = now - timedelta(7 * WeeksOfHistoryForFeatureOnValidate) + timedelta(1)
 
     if loc == "csv":
@@ -353,13 +363,13 @@ if __name__ == "__main__":
 
     # TODO Why is this out of the loading functions?
     cumul_sales = cumul_sales[cumul_sales.date.isin(
-        pd.date_range(hist_data_start, periods=7*11)
+        pd.date_range(hist_data_start, periods=7*WeeksOfHistoryForMinTrainigData)
     )].copy()
     cumul_sales.set_index(
         ['store_nbr', 'item_nbr', 'date']
     )
 
-    print (str(cumul_sales.shape) + ", " + str(cumul_sales_query.shape))
+    print(str(cumul_sales.shape) + ", " + str(cumul_sales_query.shape))
 
     promo_variables = generate_promo_variables_train_and_query(cumul_sales, cumul_sales_query)
     cumul_sales     = generate_unit_sales_columns(cumul_sales)
