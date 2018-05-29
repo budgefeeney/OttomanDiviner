@@ -1,14 +1,14 @@
 
-
+# gunzip -k tra
 
 copy
 	future_cumulative_sales (
 		id,
-		date,
+		local_date,
 		store_nbr,
 		item_nbr,
-		unit_sales,
-		onpromotion
+		unit_sale,
+		on_promotion
 
 	)
 from
@@ -25,7 +25,7 @@ csv header
 -- 	onpromotion boolean
 -- );
 
-insert into future_promotions (id, date, store_nbr, item_nbr, onpromotion) select id, date, store_nbr,item_nbr,onpromotion from cumulative_sales;
+insert into future_promotions (id, local_date, store_nbr, item_nbr, on_promotion) select id, date, store_nbr,item_nbr,onpromotion from cumulative_sales;
 
 	--drop table if exists stores;
 
